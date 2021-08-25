@@ -1,0 +1,35 @@
+#!/bin/bash
+set -e
+
+USER=${1}
+QUERY='
+  query ($repo: String!, $owner: String!, $name: String!, $endCursor: String) {
+    repository(name: $repo, owner: $owner) {
+      assignableUsers(first: 100, after: $endCursor, query: $name) {
+        nodes {
+          login
+          name
+          email
+          status {
+            message
+          }
+        },
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+'
+TEMPLATE='
+  {{- range .data.repository.assignableUsers.nodes -}}
+    {{- if .status}}
+      {{- tablerow (autocolor "green" .login) .name (autocolor "gray+h" .email) (autocolor "yellow" .status.message) -}}
+    {{- else -}}
+      {{- tablerow (autocolor "green" .login) .name (autocolor "gray+h" .email) "" -}}
+    {{- end}}
+  {{- end -}}
+'
+
+exec gh api graphql --paginate -F owner=":owner" -F repo=":repo" -F name="${USER}" -f query="${QUERY}" --template="${TEMPLATE}"
