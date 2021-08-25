@@ -19,4 +19,4 @@ gh extension install heaths/gh-users
 
 Licensed under the [MIT](LICENSE.txt) license.
 
-- [GitHub CLI]: https://github.com/cli/cli
+[GitHub CLI]: https://github.com/cli/cli
