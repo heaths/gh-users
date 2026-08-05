@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/cli/cli/v2/pkg/iostreams"
 	ghjq "github.com/cli/go-gh/pkg/jq"
+	"github.com/cli/go-gh/pkg/jsonpretty"
 	"github.com/cli/go-gh/pkg/tableprinter"
+	ghtemplate "github.com/cli/go-gh/pkg/template"
 	ghclient "github.com/heaths/gh-users/internal/github"
 	"github.com/heaths/gh-users/internal/options"
 	"github.com/spf13/cobra"
@@ -26,6 +30,10 @@ type rootOptions struct {
 	io     *iostreams.IOStreams
 	client userService
 	repo   string
+
+	jsonFields   string
+	jqExpression string
+	tmpl         string
 }
 
 func run(args []string, streams *iostreams.IOStreams) int {
@@ -41,9 +49,14 @@ func run(args []string, streams *iostreams.IOStreams) int {
 
 func newRootCmd(streams *iostreams.IOStreams, opts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "gh users [partial-username...]",
-		Short:         "List repository users, optionally filtered by partial username",
-		Long:          "List assignable repository users, optionally filtered by one or more partial usernames.",
+		Use:   "gh users [partial-username...]",
+		Short: "List repository users, optionally filtered by partial username",
+		Long:  "List assignable repository users, optionally filtered by one or more partial usernames.",
+		Example: "  gh users\n" +
+			"  gh users heath octo\n" +
+			"  gh users --json login,name,email,status\n" +
+			"  gh users --jq '.[].login'\n" +
+			"  gh users --template '{{range .}}{{printf \"%s\\t%s\\n\" .login .email}}{{end}}'",
 		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -54,6 +67,10 @@ func newRootCmd(streams *iostreams.IOStreams, opts *rootOptions) *cobra.Command 
 	cmd.SetOut(streams.Out)
 	cmd.SetErr(streams.ErrOut)
 	cmd.PersistentFlags().StringVarP(&opts.repo, "repo", "R", "", "Select another repository using the [HOST/]OWNER/REPO format")
+	cmd.Flags().StringVar(&opts.jsonFields, "json", "", fmt.Sprintf("Output JSON with the specified fields (%s)", strings.Join(ghclient.UserFields(), ",")))
+	cmd.Flags().StringVar(&opts.jqExpression, "jq", "", "Filter JSON output using a jq expression")
+	cmd.Flags().StringVar(&opts.tmpl, "template", "", "Format JSON output using a Go template")
+	cmd.MarkFlagsMutuallyExclusive("jq", "template")
 
 	return cmd
 }
@@ -78,6 +95,10 @@ func runUsers(opts *rootOptions, partials []string) error {
 	users, err := processUsers(response)
 	if err != nil {
 		return err
+	}
+
+	if opts.jsonFields != "" || opts.jqExpression != "" || opts.tmpl != "" {
+		return writeUserOutput(opts, users)
 	}
 
 	return printUsers(opts.io, users)
@@ -115,17 +136,86 @@ func printUsers(streams *iostreams.IOStreams, users []ghclient.User) error {
 	table := tableprinter.New(streams.Out, streams.IsStdoutTTY(), streams.TerminalWidth())
 
 	for _, user := range users {
-		status := ""
-		if user.Status != nil {
-			status = user.Status.Message
-		}
-
 		table.AddField(user.Login, tableprinter.WithTruncate(nil), tableprinter.WithColor(colors.Green))
 		table.AddField(user.Name)
 		table.AddField(user.Email, tableprinter.WithColor(colors.Muted))
-		table.AddField(status, tableprinter.WithColor(colors.Yellow))
+		table.AddField(user.Status, tableprinter.WithColor(colors.Yellow))
 		table.EndRow()
 	}
 
 	return table.Render()
 }
+
+func writeUserOutput(opts *rootOptions, users []ghclient.User) error {
+	data, err := marshalUserOutput(opts, users)
+	if err != nil {
+		return err
+	}
+
+	reader := bytes.NewReader(data)
+	switch {
+	case opts.tmpl != "":
+		tmpl := ghtemplate.New(opts.io.Out, opts.io.TerminalWidth(), opts.io.ColorEnabled())
+		if err := tmpl.Parse(opts.tmpl); err != nil {
+			return err
+		}
+		if err := tmpl.Execute(reader); err != nil {
+			return err
+		}
+		return tmpl.Flush()
+	case opts.jqExpression != "":
+		return ghjq.Evaluate(reader, opts.io.Out, opts.jqExpression)
+	default:
+		return writeJSONOutput(opts.io, reader)
+	}
+}
+
+func marshalUserOutput(opts *rootOptions, users []ghclient.User) ([]byte, error) {
+	if opts.jsonFields == "" {
+		return marshalJSON(users)
+	}
+
+	fields, err := ghclient.ParseUserFields(opts.jsonFields)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := ghclient.ExportUsers(users, fields)
+	if err != nil {
+		return nil, err
+	}
+
+	return marshalJSON(data)
+}
+
+func marshalJSON(v interface{}) ([]byte, error) {
+	buf := &bytes.Buffer{}
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func writeJSONOutput(streams *iostreams.IOStreams, input io.Reader) error {
+	if err := prettyPrintJSONOutput(streams, input); err == nil {
+		return nil
+	}
+
+	_, err := io.Copy(streams.Out, input)
+	return err
+}
+
+func prettyPrintJSONOutput(streams *iostreams.IOStreams, input io.Reader) error {
+	if streams == nil || !streams.IsStdoutTTY() {
+		return ioCopyUnsupported{}
+	}
+
+	return jsonpretty.Format(streams.Out, input, "  ", streams.ColorEnabled())
+}
+
+type ioCopyUnsupported struct{}
+
+func (ioCopyUnsupported) Error() string { return "pretty JSON output is not supported" }

@@ -77,12 +77,10 @@ func TestRunUsers_PrintsTSVOutput(t *testing.T) {
 					"alias_0": {
 						Nodes: []ghclient.User{
 							{
-								Login: "heaths",
-								Name:  "Heath Stewart",
-								Email: "heath@example.com",
-								Status: &ghclient.UserStatus{
-									Message: "available",
-								},
+								Login:  "heaths",
+								Name:   "Heath Stewart",
+								Email:  "heath@example.com",
+								Status: "available",
 							},
 						},
 					},
@@ -101,6 +99,89 @@ func TestRunUsers_PrintsTSVOutput(t *testing.T) {
 	require.Equal(t, "heaths", mock.owner)
 	require.Equal(t, "gh-users", mock.repo)
 	require.Equal(t, []string{"heath"}, mock.partials)
+}
+
+func TestRunUsers_PrintsJSONOutput(t *testing.T) {
+	streams, _, stdout, _ := iostreams.Test()
+	mock := &mockService{
+		response: &ghclient.QueryEnvelope{
+			Data: ghclient.QueryResponse{
+				Repository: map[string]ghclient.UserConnection{
+					"alias_0": {
+						Nodes: []ghclient.User{
+							{
+								Login:  "heaths",
+								Name:   "Heath Stewart",
+								Email:  "heath@example.com",
+								Status: "available",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := runUsers(&rootOptions{
+		io:         streams,
+		client:     mock,
+		repo:       "heaths/gh-users",
+		jsonFields: "login,status",
+	}, []string{"heath"})
+	require.NoError(t, err)
+	require.Equal(t, "[{\"login\":\"heaths\",\"status\":\"available\"}]\n", stdout.String())
+}
+
+func TestRunUsers_FiltersJSONOutputWithJQ(t *testing.T) {
+	streams, _, stdout, _ := iostreams.Test()
+	mock := &mockService{
+		response: &ghclient.QueryEnvelope{
+			Data: ghclient.QueryResponse{
+				Repository: map[string]ghclient.UserConnection{
+					"alias_0": {
+						Nodes: []ghclient.User{
+							{Login: "heaths", Name: "Heath Stewart"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := runUsers(&rootOptions{
+		io:           streams,
+		client:       mock,
+		repo:         "heaths/gh-users",
+		jqExpression: ".[].login",
+	}, []string{"heath"})
+	require.NoError(t, err)
+	require.Equal(t, "heaths\n", stdout.String())
+}
+
+func TestRunUsers_FormatsJSONOutputWithTemplate(t *testing.T) {
+	streams, _, stdout, _ := iostreams.Test()
+	mock := &mockService{
+		response: &ghclient.QueryEnvelope{
+			Data: ghclient.QueryResponse{
+				Repository: map[string]ghclient.UserConnection{
+					"alias_0": {
+						Nodes: []ghclient.User{
+							{Login: "heaths", Email: "heath@example.com"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := runUsers(&rootOptions{
+		io:     streams,
+		client: mock,
+		repo:   "heaths/gh-users",
+		tmpl:   "{{range .}}{{printf \"%s\\t%s\\n\" .login .email}}{{end}}",
+	}, []string{"heath"})
+	require.NoError(t, err)
+	require.Equal(t, "heaths\theath@example.com\n", stdout.String())
 }
 
 func TestRunUsers_PrintsEmptyOutputWhenNoMatches(t *testing.T) {
