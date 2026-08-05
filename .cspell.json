@@ -1,0 +1,19 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "useGitignore": true,
+  "ignorePaths": [
+    ".cspell.json",
+    ".devcontainer/",
+    ".github/",
+    ".vscode/",
+    "go.mod",
+    "go.sum"
+  ],
+  "words": [
+    "ghclient",
+    "ghjq",
+    "iostreams",
+    "octocat"
+  ]
+}

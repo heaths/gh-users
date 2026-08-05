@@ -1,14 +1,6 @@
 # gh users
 
-[GitHub CLI] extension to list all users for a repository, or only those matching a specified substring.
-
-```bash
-# Show all members' status:
-gh users
-
-# Show status for any member matching the given substring:
-gh users heath
-```
+GitHub CLI extension to list all users for a repository, or only those matching one or more specified substrings.
 
 ## Install
 
@@ -18,9 +10,20 @@ Make sure you have version 2.0 or [newer] of the [GitHub CLI] installed.
 gh extension install heaths/gh-users
 ```
 
-### Upgrade
+```bash
+# Show all members' status:
+gh users
 
-The `gh extension list` command shows if updates are available for extensions. To upgrade, you can use the `gh extension upgrade` command:
+# Show status for any member matching the given substring:
+gh users heath
+
+# Show status for any member matching any of the given substrings:
+gh users heath octo
+```
+
+Use `-R` / `--repo` to target another repository in `[HOST/]OWNER/REPO` format.
+
+### Upgrade
 
 ```bash
 gh extension upgrade heaths/gh-users
