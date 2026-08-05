@@ -1,11 +1,9 @@
 #!/bin/bash
-# Integration test: query this repository for the partial user name "heath"
-# and assert a single record for "heaths" is returned.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-output="$(GH_REPO="${GH_REPO:-heaths/gh-users}" ./gh-users heath)"
+output="$(GH_REPO="${GH_REPO:-heaths/gh-users}" go run . heath)"
 echo "${output}"
 
 count="$(echo "${output}" | grep -c . || true)"
