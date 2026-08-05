@@ -13,6 +13,7 @@ import (
 	"github.com/cli/go-gh/pkg/jsonpretty"
 	"github.com/cli/go-gh/pkg/tableprinter"
 	ghtemplate "github.com/cli/go-gh/pkg/template"
+	"github.com/heaths/gh-users/internal/colors"
 	ghclient "github.com/heaths/gh-users/internal/github"
 	"github.com/heaths/gh-users/internal/options"
 	"github.com/spf13/cobra"
@@ -101,7 +102,7 @@ func runUsers(opts *rootOptions, partials []string) error {
 		return writeUserOutput(opts, users)
 	}
 
-	return printUsers(opts.io, users)
+	return printUsers(opts.io, users, partials)
 }
 
 func ensureClient(client userService) (userService, error) {
@@ -131,15 +132,15 @@ func processUsers(response *ghclient.QueryEnvelope) ([]ghclient.User, error) {
 	return users, nil
 }
 
-func printUsers(streams *iostreams.IOStreams, users []ghclient.User) error {
-	colors := streams.ColorScheme()
+func printUsers(streams *iostreams.IOStreams, users []ghclient.User, patterns []string) error {
+	colorScheme := streams.ColorScheme()
 	table := tableprinter.New(streams.Out, streams.IsStdoutTTY(), streams.TerminalWidth())
 
 	for _, user := range users {
-		table.AddField(user.Login, tableprinter.WithTruncate(nil), tableprinter.WithColor(colors.Green))
-		table.AddField(user.Name)
-		table.AddField(user.Email, tableprinter.WithColor(colors.Muted))
-		table.AddField(user.Status, tableprinter.WithColor(colors.Yellow))
+		table.AddField(colors.HighlightLogin(colorScheme, user.Login, patterns...), tableprinter.WithTruncate(nil))
+		table.AddField(colors.Highlight(colorScheme, user.Name, patterns...))
+		table.AddField(user.Email, tableprinter.WithColor(colorScheme.Muted))
+		table.AddField(user.Status, tableprinter.WithColor(colorScheme.Yellow))
 		table.EndRow()
 	}
 
