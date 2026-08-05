@@ -1,9 +1,12 @@
 package main
 
+// cspell:ignore mcat mheath mocto
+
 import (
 	"testing"
 
 	"github.com/cli/cli/v2/pkg/iostreams"
+	"github.com/heaths/gh-users/internal/colors"
 	ghclient "github.com/heaths/gh-users/internal/github"
 	"github.com/stretchr/testify/require"
 )
@@ -182,6 +185,34 @@ func TestRunUsers_FormatsJSONOutputWithTemplate(t *testing.T) {
 	}, []string{"heath"})
 	require.NoError(t, err)
 	require.Equal(t, "heaths\theath@example.com\n", stdout.String())
+}
+
+func TestRunUsers_HighlightsPatternsInDefaultOutput(t *testing.T) {
+	streams, _, stdout, _ := iostreams.Test()
+	streams.SetStdoutTTY(true)
+	streams.SetColorEnabled(true)
+	mock := &mockService{
+		response: &ghclient.QueryEnvelope{
+			Data: ghclient.QueryResponse{
+				Repository: map[string]ghclient.UserConnection{
+					"alias_0": {
+						Nodes: []ghclient.User{
+							{Login: "octocat", Name: "The Octo Cat"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := runUsers(&rootOptions{
+		io:     streams,
+		client: mock,
+		repo:   "heaths/gh-users",
+	}, []string{"OCTO"})
+	require.NoError(t, err)
+	require.Contains(t, stdout.String(), colors.HighlightLogin(streams.ColorScheme(), "octocat", "OCTO"))
+	require.Contains(t, stdout.String(), colors.Highlight(streams.ColorScheme(), "The Octo Cat", "OCTO"))
 }
 
 func TestRunUsers_PrintsEmptyOutputWhenNoMatches(t *testing.T) {

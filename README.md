@@ -25,16 +25,28 @@ gh users heath octo
 ```
 
 Use `-R` / `--repo` to target another repository in `[HOST/]OWNER/REPO` format.
+When color is enabled, matching text in login and name fields is highlighted.
 
-### JSON, jq, and template output
+### JSON and jq output
 
-Use `--json` to select fields from `login,name,email,status`, `--jq` to filter JSON output, and `--template` to format it with a Go template.
+Use `--json` to select fields from `login,name,email,status` and `--jq` to
+filter JSON output.
 
 ```bash
 gh users --json login,name,email,status
 gh users --json login,status --jq '.[] | select(.status != null) | .login'
-gh users --template '{{range .}}{{printf "%s\t%s\n" .login .email}}{{end}}'
 ```
+
+### Template
+
+Use `--template` to format output with a Go template. For the built-in
+formatting and template helpers available through GitHub CLI, run:
+
+```bash
+gh help formatting
+```
+
+This command also documents the built-in jq and template formatting helpers.
 
 ### Upgrade
 
