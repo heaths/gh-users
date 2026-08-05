@@ -1,35 +1,76 @@
 #!/bin/bash
 set -e
 
-USER=${1}
-QUERY='
-  query ($repo: String!, $owner: String!, $name: String!, $endCursor: String) {
-    repository(name: $repo, owner: $owner) {
-      assignableUsers(first: 100, after: $endCursor, query: $name) {
-        nodes {
-          login
-          name
-          email
-          status {
-            message
-          }
-        },
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-      }
-    }
-  }
-'
-TEMPLATE='
-  {{- range .data.repository.assignableUsers.nodes -}}
-    {{- if .status}}
-      {{- tablerow (autocolor "green" .login) .name (autocolor "gray+h" .email) (autocolor "yellow" .status.message) -}}
-    {{- else -}}
-      {{- tablerow (autocolor "green" .login) .name (autocolor "gray+h" .email) "" -}}
-    {{- end}}
-  {{- end -}}
-'
+# Accept zero or more partial user names as positional arguments.
+USERS=("$@")
+COUNT=${#USERS[@]}
 
-exec gh api graphql --paginate -F owner=":owner" -F repo=":repo" -F name="${USER}" -f query="${QUERY}" --template="${TEMPLATE}"
+# Generate a GraphQL query with an alias for each partial user name.
+# Each alias references a single fragment to minimize duplication.
+QUERY="$(awk -v n="${COUNT}" '
+BEGIN {
+    printf "query ($owner: String!, $repo: String!"
+    if (n == 0) {
+        printf ", $endCursor: String"
+    }
+    for (i = 0; i < n; i++) {
+        printf ", $user_%d: String!", i
+    }
+    print ") {"
+    print "  repository(owner: $owner, name: $repo) {"
+    if (n == 0) {
+        print "    alias_0: assignableUsers(first: 100, after: $endCursor) {"
+        print "      ...UserFields"
+        print "      pageInfo {"
+        print "        hasNextPage"
+        print "        endCursor"
+        print "      }"
+        print "    }"
+    }
+    for (i = 0; i < n; i++) {
+        printf "    alias_%d: assignableUsers(first: 100, query: $user_%d) {\n", i, i
+        print  "      ...UserFields"
+        print  "    }"
+    }
+    print "  }"
+    print "}"
+    print "fragment UserFields on UserConnection {"
+    print "  nodes {"
+    print "    id"
+    print "    login"
+    print "    name"
+    print "    email"
+    print "    status {"
+    print "      message"
+    print "    }"
+    print "  }"
+    print "}"
+}
+')"
+
+ARGS=(-F owner=":owner" -F repo=":repo" -f query="${QUERY}")
+for ((i = 0; i < COUNT; i++)); do
+    ARGS+=(-f "user_${i}=${USERS[$i]}")
+done
+if [[ ${COUNT} -eq 0 ]]; then
+    # Only the unfiltered query pages through all assignable users.
+    ARGS+=(--paginate)
+fi
+
+# gh does not support --jq and --template together, so --jq gathers users from
+# every alias, deduplicates them by login, and sorts them for display.
+if [[ -t 1 ]]; then
+    GREEN=$'\033[0;32m' GRAY=$'\033[0;90m' YELLOW=$'\033[0;33m' RESET=$'\033[0m'
+else
+    GREEN='' GRAY='' YELLOW='' RESET=''
+fi
+JQ="
+  [.data.repository[].nodes[]]
+  | unique_by(.login) | sort_by(.login)
+  | .[]
+  | \"${GREEN}\" + .login + \"${RESET}\t\" + (.name // \"\")
+    + \"\t${GRAY}\" + (.email // \"\") + \"${RESET}\t${YELLOW}\"
+    + (.status.message // \"\") + \"${RESET}\"
+"
+
+exec gh api graphql "${ARGS[@]}" --jq "${JQ}"
