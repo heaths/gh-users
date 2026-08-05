@@ -11,6 +11,8 @@ Make sure you have version 2.0 or [newer] of the [GitHub CLI] installed.
 gh extension install heaths/gh-users
 ```
 
+## Usage
+
 ```bash
 # Show all members' status:
 gh users
@@ -23,6 +25,16 @@ gh users heath octo
 ```
 
 Use `-R` / `--repo` to target another repository in `[HOST/]OWNER/REPO` format.
+
+### JSON, jq, and template output
+
+Use `--json` to select fields from `login,name,email,status`, `--jq` to filter JSON output, and `--template` to format it with a Go template.
+
+```bash
+gh users --json login,name,email,status
+gh users --json login,status --jq '.[] | select(.status != null) | .login'
+gh users --template '{{range .}}{{printf "%s\t%s\n" .login .email}}{{end}}'
+```
 
 ### Upgrade
 

@@ -3,6 +3,7 @@ package github
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/cli/go-gh"
@@ -10,6 +11,13 @@ import (
 )
 
 const usersJQExpression = `[.data.repository[].nodes[]] | unique_by(.login) | sort_by(.login)`
+
+var userFields = []string{
+	"login",
+	"name",
+	"email",
+	"status",
+}
 
 type GraphQLClient interface {
 	Do(query string, variables map[string]interface{}, response interface{}) error
@@ -32,23 +40,145 @@ type UserConnection struct {
 	PageInfo PageInfo `json:"pageInfo"`
 }
 
+type graphqlQueryResponse struct {
+	Repository map[string]graphqlUserConnection `json:"repository"`
+}
+
+type graphqlUserConnection struct {
+	Nodes    []graphqlUser `json:"nodes"`
+	PageInfo PageInfo      `json:"pageInfo"`
+}
+
 type PageInfo struct {
 	HasNextPage bool   `json:"hasNextPage"`
 	EndCursor   string `json:"endCursor"`
 }
 
 type User struct {
-	ID         string      `json:"id"`
-	DatabaseID int         `json:"databaseId"`
-	Login      string      `json:"login"`
-	Name       string      `json:"name"`
-	URL        string      `json:"url"`
-	Email      string      `json:"email"`
-	Status     *UserStatus `json:"status"`
+	Login  string `json:"login"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+	Status string `json:"status"`
 }
 
-type UserStatus struct {
+type graphqlUser struct {
+	Login  string             `json:"login"`
+	Name   string             `json:"name"`
+	Email  string             `json:"email"`
+	Status *graphqlUserStatus `json:"status"`
+}
+
+type graphqlUserStatus struct {
 	Message string `json:"message"`
+}
+
+func UserFields() []string {
+	return slices.Clone(userFields)
+}
+
+func ParseUserFields(value string) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return UserFields(), nil
+	}
+
+	fields := strings.Split(value, ",")
+	for i, field := range fields {
+		fields[i] = strings.TrimSpace(field)
+	}
+
+	if err := ValidateUserFields(fields); err != nil {
+		return nil, err
+	}
+
+	return fields, nil
+}
+
+func ValidateUserFields(fields []string) error {
+	for _, field := range fields {
+		if field == "" {
+			return fmt.Errorf("JSON fields cannot be empty")
+		}
+		if !slices.Contains(userFields, field) {
+			return fmt.Errorf("unknown JSON field %q (available: %s)", field, strings.Join(userFields, ","))
+		}
+	}
+
+	return nil
+}
+
+func (u User) ExportData(fields []string) (map[string]interface{}, error) {
+	if err := ValidateUserFields(fields); err != nil {
+		return nil, err
+	}
+
+	data := make(map[string]interface{}, len(fields))
+	for _, field := range fields {
+		switch field {
+		case "login":
+			data[field] = u.Login
+		case "name":
+			data[field] = u.Name
+		case "email":
+			data[field] = u.Email
+		case "status":
+			data[field] = u.Status
+		}
+	}
+
+	return data, nil
+}
+
+func (u graphqlUser) User() User {
+	user := User{
+		Login: u.Login,
+		Name:  u.Name,
+		Email: u.Email,
+	}
+	if u.Status != nil {
+		user.Status = u.Status.Message
+	}
+
+	return user
+}
+
+func (c graphqlUserConnection) UserConnection() UserConnection {
+	connection := UserConnection{
+		Nodes:    make([]User, 0, len(c.Nodes)),
+		PageInfo: c.PageInfo,
+	}
+	for _, node := range c.Nodes {
+		connection.Nodes = append(connection.Nodes, node.User())
+	}
+
+	return connection
+}
+
+func (r graphqlQueryResponse) QueryResponse() QueryResponse {
+	response := QueryResponse{
+		Repository: make(map[string]UserConnection, len(r.Repository)),
+	}
+	for alias, connection := range r.Repository {
+		response.Repository[alias] = connection.UserConnection()
+	}
+
+	return response
+}
+
+func ExportUsers(users []User, fields []string) ([]map[string]interface{}, error) {
+	if err := ValidateUserFields(fields); err != nil {
+		return nil, err
+	}
+
+	data := make([]map[string]interface{}, 0, len(users))
+	for _, user := range users {
+		exported, err := user.ExportData(fields)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, exported)
+	}
+
+	return data, nil
 }
 
 func UsersJQExpression() string {
@@ -85,11 +215,11 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 	}
 
 	if len(partials) > 0 {
-		var response QueryResponse
+		var response graphqlQueryResponse
 		if err := c.gql.Do(query, vars, &response); err != nil {
 			return nil, err
 		}
-		envelope.Data = response
+		envelope.Data = response.QueryResponse()
 		if envelope.Data.Repository == nil {
 			envelope.Data.Repository = map[string]UserConnection{}
 		}
@@ -103,12 +233,12 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 			pagedVars["endCursor"] = endCursor
 		}
 
-		var response QueryResponse
+		var response graphqlQueryResponse
 		if err := c.gql.Do(query, pagedVars, &response); err != nil {
 			return nil, err
 		}
 
-		connection := response.Repository["alias_0"]
+		connection := response.Repository["alias_0"].UserConnection()
 		aggregated := envelope.Data.Repository["alias_0"]
 		aggregated.Nodes = append(aggregated.Nodes, connection.Nodes...)
 		aggregated.PageInfo = connection.PageInfo
@@ -161,11 +291,8 @@ func BuildQuery(partials []string) string {
 	query.WriteString("}\n")
 	query.WriteString("\n")
 	query.WriteString("fragment UserFragment on User {\n")
-	query.WriteString("  id\n")
-	query.WriteString("  databaseId\n")
 	query.WriteString("  login\n")
 	query.WriteString("  name\n")
-	query.WriteString("  url\n")
 	query.WriteString("  email\n")
 	query.WriteString("  status {\n")
 	query.WriteString("    message\n")
