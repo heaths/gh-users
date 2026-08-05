@@ -4,7 +4,6 @@
   "useGitignore": true,
   "ignorePaths": [
     ".cspell.json",
-    ".devcontainer/",
     ".github/",
     ".vscode/",
     "go.mod",
@@ -14,6 +13,10 @@
     "ghclient",
     "ghjq",
     "iostreams",
-    "octocat"
+    "octo",
+    "octocat",
+    "stdlib",
+    "stretchr",
+    "tableprinter"
   ]
 }

@@ -1,6 +1,7 @@
 # gh users
 
-GitHub CLI extension to list all users for a repository, or only those matching one or more specified substrings.
+GitHub CLI extension to list all users for a repository, or only those
+matching one or more specified substrings.
 
 ## Install
 

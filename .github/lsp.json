@@ -1,0 +1,13 @@
+{
+  "lspServers": {
+    "go": {
+      "command": "gopls",
+      "args": [
+        "serve"
+      ],
+      "fileExtensions": {
+        ".go": "go"
+      }
+    }
+  }
+}
