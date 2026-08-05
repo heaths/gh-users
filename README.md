@@ -10,6 +10,17 @@ gh users
 gh users heath
 ```
 
+## Query users
+
+Generate a compact GraphQL query for users matching one or more partial logins:
+
+```bash
+scripts/query-users.sh heath octo
+```
+
+The script searches public GitHub users for each partial login, deduplicates the
+matching logins, and writes a query using a reusable `User` fragment.
+
 ## Install
 
 Make sure you have version 2.0 or [newer] of the [GitHub CLI] installed.
