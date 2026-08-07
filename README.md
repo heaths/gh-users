@@ -7,13 +7,13 @@ matching one or more specified substrings.
 
 Make sure you have version 2.0 or [newer] of the [GitHub CLI] installed.
 
-```bash
+```sh
 gh extension install heaths/gh-users
 ```
 
 ## Usage
 
-```bash
+```sh
 # Show all members' status:
 gh users
 
@@ -32,17 +32,23 @@ When color is enabled, matching text in login and name fields is highlighted.
 Use `--json` to select fields from `login,name,email,status` and `--jq` to
 filter JSON output.
 
-```bash
+```sh
 gh users --json login,name,email,status
 gh users --json login,status --jq '.[] | select(.status != null) | .login'
 ```
 
 ### Template
 
-Use `--template` to format output with a Go template. For the built-in
-formatting and template helpers available through GitHub CLI, run:
+Use `--template` to format output with a Go template e.g., to display the
+standard table of any login or name matching "wil" without highlighting:
 
-```bash
+```sh
+gh users wil --template '{{range .}}{{tablerow (autocolor "green" .login) .name (autocolor "white+d" .email) (autocolor "yellow" .status)}}{{end}}'
+```
+
+For the built-in formatting and template helpers available through GitHub CLI, run:
+
+```sh
 gh help formatting
 ```
 
@@ -50,7 +56,7 @@ This command also documents the built-in jq and template formatting helpers.
 
 ### Upgrade
 
-```bash
+```sh
 gh extension upgrade heaths/gh-users
 
 # Or upgrade all extensions:
