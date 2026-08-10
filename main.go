@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cli/cli/v2/pkg/iostreams"
-	ghjq "github.com/cli/go-gh/pkg/jq"
-	"github.com/cli/go-gh/pkg/jsonpretty"
-	"github.com/cli/go-gh/pkg/tableprinter"
-	ghtemplate "github.com/cli/go-gh/pkg/template"
+	ghjq "github.com/cli/go-gh/v2/pkg/jq"
+	"github.com/cli/go-gh/v2/pkg/jsonpretty"
+	"github.com/cli/go-gh/v2/pkg/tableprinter"
+	ghtemplate "github.com/cli/go-gh/v2/pkg/template"
+	"github.com/cli/go-gh/v2/pkg/term"
 	"github.com/heaths/gh-users/internal/colors"
 	ghclient "github.com/heaths/gh-users/internal/github"
 	"github.com/heaths/gh-users/internal/options"
@@ -20,7 +20,7 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], iostreams.System()))
+	os.Exit(run(os.Args[1:], term.FromEnv()))
 }
 
 type userService interface {
@@ -28,7 +28,7 @@ type userService interface {
 }
 
 type rootOptions struct {
-	io     *iostreams.IOStreams
+	term   term.Term
 	client userService
 	repo   string
 
@@ -37,18 +37,18 @@ type rootOptions struct {
 	tmpl         string
 }
 
-func run(args []string, streams *iostreams.IOStreams) int {
-	root := newRootCmd(streams, &rootOptions{io: streams})
+func run(args []string, terminal term.Term) int {
+	root := newRootCmd(terminal, &rootOptions{term: terminal})
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
-		_, _ = fmt.Fprintln(streams.ErrOut, err)
+		_, _ = fmt.Fprintln(terminal.ErrOut(), err)
 		return 1
 	}
 
 	return 0
 }
 
-func newRootCmd(streams *iostreams.IOStreams, opts *rootOptions) *cobra.Command {
+func newRootCmd(terminal term.Term, opts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gh users [partial-username...]",
 		Short: "List repository users, optionally filtered by partial username",
@@ -65,8 +65,8 @@ func newRootCmd(streams *iostreams.IOStreams, opts *rootOptions) *cobra.Command 
 			return runUsers(opts, args)
 		},
 	}
-	cmd.SetOut(streams.Out)
-	cmd.SetErr(streams.ErrOut)
+	cmd.SetOut(terminal.Out())
+	cmd.SetErr(terminal.ErrOut())
 	cmd.PersistentFlags().StringVarP(&opts.repo, "repo", "R", "", "Select another repository using the [HOST/]OWNER/REPO format")
 	cmd.Flags().StringVar(&opts.jsonFields, "json", "", fmt.Sprintf("Output JSON with the specified fields (%s)", strings.Join(ghclient.UserFields(), ",")))
 	cmd.Flags().StringVar(&opts.jqExpression, "jq", "", "Filter JSON output using a jq expression")
@@ -88,7 +88,7 @@ func runUsers(opts *rootOptions, partials []string) error {
 	}
 	opts.client = client
 
-	response, err := client.QueryUsers(repo.Owner(), repo.Name(), partials)
+	response, err := client.QueryUsers(repo.Owner, repo.Name, partials)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func runUsers(opts *rootOptions, partials []string) error {
 		return writeUserOutput(opts, users)
 	}
 
-	return printUsers(opts.io, users, partials)
+	return printUsers(opts.term, users, partials)
 }
 
 func ensureClient(client userService) (userService, error) {
@@ -132,15 +132,14 @@ func processUsers(response *ghclient.QueryEnvelope) ([]ghclient.User, error) {
 	return users, nil
 }
 
-func printUsers(streams *iostreams.IOStreams, users []ghclient.User, patterns []string) error {
-	colorScheme := streams.ColorScheme()
-	table := tableprinter.New(streams.Out, streams.IsStdoutTTY(), streams.TerminalWidth())
+func printUsers(terminal term.Term, users []ghclient.User, patterns []string) error {
+	table := tableprinter.New(terminal.Out(), terminal.IsTerminalOutput(), terminalWidth(terminal))
 
 	for _, user := range users {
-		table.AddField(colors.HighlightLogin(colorScheme, user.Login, patterns...), tableprinter.WithTruncate(nil))
-		table.AddField(colors.Highlight(colorScheme, user.Name, patterns...))
-		table.AddField(user.Email, tableprinter.WithColor(colorScheme.Muted))
-		table.AddField(user.Status, tableprinter.WithColor(colorScheme.Yellow))
+		table.AddField(colors.HighlightLogin(terminal, user.Login, patterns...), tableprinter.WithTruncate(nil))
+		table.AddField(colors.Highlight(terminal, user.Name, patterns...))
+		table.AddField(user.Email, tableprinter.WithColor(colors.Muted(terminal)))
+		table.AddField(user.Status, tableprinter.WithColor(colors.Yellow(terminal)))
 		table.EndRow()
 	}
 
@@ -156,7 +155,7 @@ func writeUserOutput(opts *rootOptions, users []ghclient.User) error {
 	reader := bytes.NewReader(data)
 	switch {
 	case opts.tmpl != "":
-		tmpl := ghtemplate.New(opts.io.Out, opts.io.TerminalWidth(), opts.io.ColorEnabled())
+		tmpl := ghtemplate.New(opts.term.Out(), terminalWidth(opts.term), opts.term.IsColorEnabled())
 		if err := tmpl.Parse(opts.tmpl); err != nil {
 			return err
 		}
@@ -165,9 +164,9 @@ func writeUserOutput(opts *rootOptions, users []ghclient.User) error {
 		}
 		return tmpl.Flush()
 	case opts.jqExpression != "":
-		return ghjq.Evaluate(reader, opts.io.Out, opts.jqExpression)
+		return ghjq.Evaluate(reader, opts.term.Out(), opts.jqExpression)
 	default:
-		return writeJSONOutput(opts.io, reader)
+		return writeJSONOutput(opts.term, reader)
 	}
 }
 
@@ -200,23 +199,31 @@ func marshalJSON(v interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func writeJSONOutput(streams *iostreams.IOStreams, input io.Reader) error {
-	if err := prettyPrintJSONOutput(streams, input); err == nil {
+func writeJSONOutput(terminal term.Term, input io.Reader) error {
+	if err := prettyPrintJSONOutput(terminal, input); err == nil {
 		return nil
 	}
 
-	_, err := io.Copy(streams.Out, input)
+	_, err := io.Copy(terminal.Out(), input)
 	return err
 }
 
-func prettyPrintJSONOutput(streams *iostreams.IOStreams, input io.Reader) error {
-	if streams == nil || !streams.IsStdoutTTY() {
+func prettyPrintJSONOutput(terminal term.Term, input io.Reader) error {
+	if !terminal.IsTerminalOutput() {
 		return ioCopyUnsupported{}
 	}
 
-	return jsonpretty.Format(streams.Out, input, "  ", streams.ColorEnabled())
+	return jsonpretty.Format(terminal.Out(), input, "  ", terminal.IsColorEnabled())
 }
 
 type ioCopyUnsupported struct{}
 
 func (ioCopyUnsupported) Error() string { return "pretty JSON output is not supported" }
+
+func terminalWidth(terminal term.Term) int {
+	width, _, err := terminal.Size()
+	if err == nil && width > 0 {
+		return width
+	}
+	return 80
+}

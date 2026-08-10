@@ -5,13 +5,16 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/cli/cli/v2/pkg/iostreams"
+	"github.com/cli/go-gh/v2/pkg/term"
 )
 
 const (
 	greenForeground16 = "\x1b[32m"
 	// Use 30;103 for a bright-yellow background instead of the current dim yellow.
-	blackOnYellow16 = "\x1b[30;43m"
+	blackOnYellow16    = "\x1b[30;43m"
+	yellowForeground16 = "\x1b[0;33m"
+	grayForeground16   = "\x1b[0;90m"
+	grayForeground256  = "\x1b[38;5;242m"
 
 	resetDefault = "\x1b[39;49m"
 	resetAll     = "\x1b[0m"
@@ -35,32 +38,56 @@ type fieldStyle struct {
 }
 
 // Highlight applies theme-aware highlighting for name-like fields.
-func Highlight(colorScheme *iostreams.ColorScheme, input string, patterns ...string) string {
-	colors := colorsFor(colorScheme)
+func Highlight(terminal term.Term, input string, patterns ...string) string {
+	colors := colorsFor(terminal)
 	return highlight(fieldStyle{
 		plainPrefix:     colors.namePlain,
 		plainSuffix:     "",
 		highlightPrefix: colors.highlightSpan,
 		highlightSuffix: resetDefault,
-	}, colorScheme, input, patterns...)
+	}, terminal, input, patterns...)
 }
 
 // HighlightLogin applies theme-aware highlighting for login fields.
-func HighlightLogin(colorScheme *iostreams.ColorScheme, input string, patterns ...string) string {
-	colors := colorsFor(colorScheme)
+func HighlightLogin(terminal term.Term, input string, patterns ...string) string {
+	colors := colorsFor(terminal)
 	return highlight(fieldStyle{
-		plainPrefix:     loginPlain(colorScheme),
+		plainPrefix:     loginPlain(terminal),
 		plainSuffix:     resetAll,
 		highlightPrefix: colors.highlightSpan,
 		highlightSuffix: resetDefault,
-	}, colorScheme, input, patterns...)
+	}, terminal, input, patterns...)
 }
 
-func highlight(style fieldStyle, colorScheme *iostreams.ColorScheme, input string, patterns ...string) string {
+// Muted returns a terminal-aware muted color function for table fields.
+func Muted(terminal term.Term) func(string) string {
+	return func(input string) string {
+		if !terminal.IsColorEnabled() {
+			return input
+		}
+		prefix := grayForeground16
+		if terminal.Is256ColorSupported() {
+			prefix = grayForeground256
+		}
+		return prefix + input + resetAll
+	}
+}
+
+// Yellow returns a terminal-aware yellow color function for table fields.
+func Yellow(terminal term.Term) func(string) string {
+	return func(input string) string {
+		if !terminal.IsColorEnabled() {
+			return input
+		}
+		return yellowForeground16 + input + resetAll
+	}
+}
+
+func highlight(style fieldStyle, terminal term.Term, input string, patterns ...string) string {
 	if input == "" {
 		return input
 	}
-	if colorScheme == nil || !colorScheme.Enabled {
+	if !terminal.IsColorEnabled() {
 		return input
 	}
 
@@ -84,18 +111,18 @@ func highlight(style fieldStyle, colorScheme *iostreams.ColorScheme, input strin
 	return output.String()
 }
 
-func colorsFor(colorScheme *iostreams.ColorScheme) themeColors {
+func colorsFor(terminal term.Term) themeColors {
 	return themeColors{
-		namePlain:     namePlain(colorScheme),
+		namePlain:     namePlain(terminal),
 		highlightSpan: blackOnYellow16,
 	}
 }
 
-func namePlain(_ *iostreams.ColorScheme) string {
+func namePlain(_ term.Term) string {
 	return ""
 }
 
-func loginPlain(colorScheme *iostreams.ColorScheme) string {
+func loginPlain(_ term.Term) string {
 	return greenForeground16
 }
 
