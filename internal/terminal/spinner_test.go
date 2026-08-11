@@ -11,6 +11,11 @@ import (
 func TestNewSpinner(t *testing.T) {
 	output, err := os.CreateTemp(t.TempDir(), "spinner-output")
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		if err := output.Close(); err != nil {
+			t.Errorf("closing spinner temp file: %v", err)
+		}
+	})
 
 	defaultOutput := spinnerDefaultOutput
 	isTerminal := spinnerIsTerminal
