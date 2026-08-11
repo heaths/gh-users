@@ -26,6 +26,9 @@ gh users heath octo
 
 Use `-R` / `--repo` to target another repository in `[HOST/]OWNER/REPO` format.
 When color is enabled, matching text in login and name fields is highlighted.
+When listing all assignable users, paginated fetches show a spinner on standard
+error when standard error is a TTY, unless `GH_SPINNER_DISABLED=1` or
+`GH_SPINNER_DISABLED=true`.
 
 ### JSON and jq output
 

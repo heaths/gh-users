@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/cli/go-gh/v2/pkg/term"
-	"github.com/heaths/gh-users/internal/colors"
 	ghclient "github.com/heaths/gh-users/internal/github"
+	appterm "github.com/heaths/gh-users/internal/terminal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -212,8 +212,8 @@ func TestRunUsers_HighlightsPatternsInDefaultOutput(t *testing.T) {
 	}, []string{"OCTO"})
 	require.NoError(t, err)
 	output := fileString(t, stdout)
-	require.Contains(t, output, colors.HighlightLogin(terminal, "octocat", "OCTO"))
-	require.Contains(t, output, colors.Highlight(terminal, "The Octo Cat", "OCTO"))
+	require.Contains(t, output, appterm.HighlightLogin(terminal, "octocat", "OCTO"))
+	require.Contains(t, output, appterm.Highlight(terminal, "The Octo Cat", "OCTO"))
 }
 
 func TestRunUsers_PrintsEmptyOutputWhenNoMatches(t *testing.T) {

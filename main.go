@@ -13,9 +13,9 @@ import (
 	"github.com/cli/go-gh/v2/pkg/tableprinter"
 	ghtemplate "github.com/cli/go-gh/v2/pkg/template"
 	"github.com/cli/go-gh/v2/pkg/term"
-	"github.com/heaths/gh-users/internal/colors"
 	ghclient "github.com/heaths/gh-users/internal/github"
 	"github.com/heaths/gh-users/internal/options"
+	appterm "github.com/heaths/gh-users/internal/terminal"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +82,7 @@ func runUsers(opts *rootOptions, partials []string) error {
 		return err
 	}
 
-	client, err := ensureClient(opts.client)
+	client, err := ensureClient(opts)
 	if err != nil {
 		return err
 	}
@@ -105,12 +105,12 @@ func runUsers(opts *rootOptions, partials []string) error {
 	return printUsers(opts.term, users, partials)
 }
 
-func ensureClient(client userService) (userService, error) {
-	if client != nil {
-		return client, nil
+func ensureClient(opts *rootOptions) (userService, error) {
+	if opts.client != nil {
+		return opts.client, nil
 	}
 
-	return ghclient.New(nil)
+	return ghclient.New(nil, opts.term.ErrOut())
 }
 
 func processUsers(response *ghclient.QueryEnvelope) ([]ghclient.User, error) {
@@ -136,10 +136,10 @@ func printUsers(terminal term.Term, users []ghclient.User, patterns []string) er
 	table := tableprinter.New(terminal.Out(), terminal.IsTerminalOutput(), terminalWidth(terminal))
 
 	for _, user := range users {
-		table.AddField(colors.HighlightLogin(terminal, user.Login, patterns...), tableprinter.WithTruncate(nil))
-		table.AddField(colors.Highlight(terminal, user.Name, patterns...))
-		table.AddField(user.Email, tableprinter.WithColor(colors.Muted(terminal)))
-		table.AddField(user.Status, tableprinter.WithColor(colors.Yellow(terminal)))
+		table.AddField(appterm.HighlightLogin(terminal, user.Login, patterns...), tableprinter.WithTruncate(nil))
+		table.AddField(appterm.Highlight(terminal, user.Name, patterns...))
+		table.AddField(user.Email, tableprinter.WithColor(appterm.Muted(terminal)))
+		table.AddField(user.Status, tableprinter.WithColor(appterm.Yellow(terminal)))
 		table.EndRow()
 	}
 
