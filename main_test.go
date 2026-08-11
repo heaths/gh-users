@@ -72,6 +72,18 @@ func TestProcessUsers_DedupesAndSortsViaJQ(t *testing.T) {
 	}, users)
 }
 
+func TestProcessUsers_AllowsNilNodes(t *testing.T) {
+	users, err := processUsers(&ghclient.QueryEnvelope{
+		Data: ghclient.QueryResponse{
+			Repository: map[string]ghclient.UserConnection{
+				"alias_0": {},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, users)
+}
+
 func TestRunUsers_PrintsTSVOutput(t *testing.T) {
 	terminal, stdout, _ := testTerminal(t, false)
 
