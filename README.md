@@ -26,9 +26,6 @@ gh users heath octo
 
 Use `-R` / `--repo` to target another repository in `[HOST/]OWNER/REPO` format.
 When color is enabled, matching text in login and name fields is highlighted.
-When listing all assignable users, paginated fetches show a spinner on standard
-error when standard error is a TTY, unless `GH_SPINNER_DISABLED=1` or
-`GH_SPINNER_DISABLED=true`.
 
 ### JSON and jq output
 
@@ -65,6 +62,14 @@ gh extension upgrade heaths/gh-users
 # Or upgrade all extensions:
 gh extension upgrade --all
 ```
+
+### Environment variables
+
+When fetching many records, `gh users` displays a spinner. Set
+`GH_SPINNER_DISABLED=1` or `GH_SPINNER_DISABLED=true` to disable it.
+
+Run `gh help environment` for more details about this and other environment
+variables such as `GH_REPO` and `NO_COLOR`.
 
 ## License
 

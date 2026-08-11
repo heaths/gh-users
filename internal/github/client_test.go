@@ -1,7 +1,10 @@
 package github
 
+// cspell:ignore mheath
+
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,9 +34,10 @@ func (f *fakeGQLClient) Do(query string, vars map[string]interface{}, response i
 func TestBuildQuery_MultiplePartialsUsesAliasesAndFragment(t *testing.T) {
 	query := BuildQuery([]string{"heath", "octo"})
 
-	require.Contains(t, query, "query Users($owner: String!, $repo: String!, $user_0: String!, $user_1: String!)")
-	require.Contains(t, query, "alias_0: assignableUsers(first: 100, query: $user_0)")
-	require.Contains(t, query, "alias_1: assignableUsers(first: 100, query: $user_1)")
+	require.Contains(t, query, "query Users($owner: String!, $repo: String!, $user_0: String!, $endCursor_0: String, $user_1: String!, $endCursor_1: String)")
+	require.Contains(t, query, "alias_0: assignableUsers(first: 100, after: $endCursor_0, query: $user_0)")
+	require.Contains(t, query, "alias_1: assignableUsers(first: 100, after: $endCursor_1, query: $user_1)")
+	require.Equal(t, 2, strings.Count(query, "pageInfo"))
 	require.Contains(t, query, "fragment UserFragment on User")
 	require.NotContains(t, query, "\n  id\n")
 	require.NotContains(t, query, "databaseId")
@@ -120,13 +124,69 @@ func TestQueryUsers_PaginatesUnfilteredResults(t *testing.T) {
 	require.Equal(t, 1, indicator.stopped)
 }
 
-func TestQueryUsers_StopsSpinnerBeforeReturningError(t *testing.T) {
+func TestQueryUsers_PaginatesPartialResultsByAlias(t *testing.T) {
+	calls := 0
+	indicator := &fakeProgressIndicator{}
+	client := NewWithClient(&fakeGQLClient{
+		do: func(query string, vars map[string]interface{}, response interface{}) error {
+			calls++
+			require.Equal(t, "heath", vars["user_0"])
+			require.Equal(t, "octo", vars["user_1"])
+
+			resp := response.(*graphqlQueryResponse)
+			switch calls {
+			case 1:
+				_, hasFirstCursor := vars["endCursor_0"]
+				require.False(t, hasFirstCursor)
+				_, hasSecondCursor := vars["endCursor_1"]
+				require.False(t, hasSecondCursor)
+				resp.Repository = map[string]graphqlUserConnection{
+					"alias_0": {
+						Nodes: []graphqlUser{{Login: "heaths"}},
+						PageInfo: PageInfo{
+							HasNextPage: true,
+							EndCursor:   "heath-cursor-1",
+						},
+					},
+					"alias_1": {
+						Nodes: []graphqlUser{{Login: "octocat"}},
+					},
+				}
+			case 2:
+				require.Equal(t, "heath-cursor-1", vars["endCursor_0"])
+				_, hasSecondCursor := vars["endCursor_1"]
+				require.False(t, hasSecondCursor)
+				resp.Repository = map[string]graphqlUserConnection{
+					"alias_0": {
+						Nodes: []graphqlUser{{Login: "mheath"}},
+					},
+				}
+			default:
+				return errors.New("unexpected page")
+			}
+
+			return nil
+		},
+	})
+	client.newSpinner = func() progressIndicator { return indicator }
+
+	response, err := client.QueryUsers("heaths", "gh-users", []string{"heath", "octo"})
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	require.Equal(t, []User{{Login: "heaths"}, {Login: "mheath"}}, response.Data.Repository["alias_0"].Nodes)
+	require.Equal(t, []User{{Login: "octocat"}}, response.Data.Repository["alias_1"].Nodes)
+	require.Equal(t, 1, indicator.started)
+	require.Equal(t, 1, indicator.stopped)
+}
+
+func TestQueryUsers_StopsSpinnerBeforeReturningPartialPagingError(t *testing.T) {
 	calls := 0
 	indicator := &fakeProgressIndicator{}
 	client := NewWithClient(&fakeGQLClient{
 		do: func(query string, vars map[string]interface{}, response interface{}) error {
 			calls++
 			if calls == 2 {
+				require.Equal(t, "cursor-1", vars["endCursor_0"])
 				require.Equal(t, 1, indicator.started)
 				require.Equal(t, 0, indicator.stopped)
 				return errors.New("page 2 failed")
@@ -147,7 +207,7 @@ func TestQueryUsers_StopsSpinnerBeforeReturningError(t *testing.T) {
 	})
 	client.newSpinner = func() progressIndicator { return indicator }
 
-	response, err := client.QueryUsers("heaths", "gh-users", nil)
+	response, err := client.QueryUsers("heaths", "gh-users", []string{"alpha"})
 	require.Nil(t, response)
 	require.EqualError(t, err, "page 2 failed")
 	require.Equal(t, 1, indicator.started)

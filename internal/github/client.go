@@ -225,25 +225,19 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 		},
 	}
 
-	if len(partials) > 0 {
-		var response graphqlQueryResponse
-		if err := c.gql.Do(query, vars, &response); err != nil {
-			return nil, err
-		}
-		envelope.Data = response.QueryResponse()
-		if envelope.Data.Repository == nil {
-			envelope.Data.Repository = map[string]UserConnection{}
-		}
-		return envelope, nil
+	connectionCount := len(partials)
+	if connectionCount == 0 {
+		connectionCount = 1
 	}
 
-	var endCursor string
+	active := make([]bool, connectionCount)
+	for i := range active {
+		active[i] = true
+	}
+
 	var indicator progressIndicator
 	for {
 		pagedVars := cloneVariables(vars)
-		if endCursor != "" {
-			pagedVars["endCursor"] = endCursor
-		}
 
 		var response graphqlQueryResponse
 		if err := c.gql.Do(query, pagedVars, &response); err != nil {
@@ -253,13 +247,27 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 			return nil, err
 		}
 
-		connection := response.Repository["alias_0"].UserConnection()
-		aggregated := envelope.Data.Repository["alias_0"]
-		aggregated.Nodes = append(aggregated.Nodes, connection.Nodes...)
-		aggregated.PageInfo = connection.PageInfo
-		envelope.Data.Repository["alias_0"] = aggregated
+		hasNextPage := false
+		for i := range connectionCount {
+			if !active[i] {
+				continue
+			}
 
-		if !connection.PageInfo.HasNextPage {
+			alias := fmt.Sprintf("alias_%d", i)
+			connection := response.Repository[alias].UserConnection()
+			aggregated := envelope.Data.Repository[alias]
+			aggregated.Nodes = append(aggregated.Nodes, connection.Nodes...)
+			aggregated.PageInfo = connection.PageInfo
+			envelope.Data.Repository[alias] = aggregated
+
+			active[i] = connection.PageInfo.HasNextPage
+			if active[i] {
+				hasNextPage = true
+				vars[endCursorVariable(partials, i)] = connection.PageInfo.EndCursor
+			}
+		}
+
+		if !hasNextPage {
 			if indicator != nil {
 				indicator.Stop()
 			}
@@ -272,8 +280,6 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 				indicator.Start()
 			}
 		}
-
-		endCursor = connection.PageInfo.EndCursor
 	}
 
 	return envelope, nil
@@ -287,7 +293,7 @@ func BuildQuery(partials []string) string {
 		query.WriteString(", $endCursor: String")
 	}
 	for i := range partials {
-		fmt.Fprintf(&query, ", $user_%d: String!", i)
+		fmt.Fprintf(&query, ", $user_%d: String!, $endCursor_%d: String", i, i)
 	}
 	query.WriteString(") {\n")
 	query.WriteString("  repository(owner: $owner, name: $repo) {\n")
@@ -304,9 +310,13 @@ func BuildQuery(partials []string) string {
 		query.WriteString("    }\n")
 	} else {
 		for i := range partials {
-			fmt.Fprintf(&query, "    alias_%d: assignableUsers(first: 100, query: $user_%d) {\n", i, i)
+			fmt.Fprintf(&query, "    alias_%d: assignableUsers(first: 100, after: $endCursor_%d, query: $user_%d) {\n", i, i, i)
 			query.WriteString("      nodes {\n")
 			query.WriteString("        ...UserFragment\n")
+			query.WriteString("      }\n")
+			query.WriteString("      pageInfo {\n")
+			query.WriteString("        hasNextPage\n")
+			query.WriteString("        endCursor\n")
 			query.WriteString("      }\n")
 			query.WriteString("    }\n")
 		}
@@ -325,6 +335,14 @@ func BuildQuery(partials []string) string {
 	query.WriteString("}\n")
 
 	return query.String()
+}
+
+func endCursorVariable(partials []string, index int) string {
+	if len(partials) == 0 {
+		return "endCursor"
+	}
+
+	return fmt.Sprintf("endCursor_%d", index)
 }
 
 func cloneVariables(vars map[string]interface{}) map[string]interface{} {
