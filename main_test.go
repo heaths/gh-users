@@ -3,9 +3,11 @@ package main
 // cspell:ignore mcat mheath mocto
 
 import (
+	"io"
+	"os"
 	"testing"
 
-	"github.com/cli/cli/v2/pkg/iostreams"
+	"github.com/cli/go-gh/v2/pkg/term"
 	"github.com/heaths/gh-users/internal/colors"
 	ghclient "github.com/heaths/gh-users/internal/github"
 	"github.com/stretchr/testify/require"
@@ -27,17 +29,18 @@ func (m *mockService) QueryUsers(owner, repo string, partials []string) (*ghclie
 }
 
 func TestRun_PrintsCobraError(t *testing.T) {
-	streams, _, stdout, stderr := iostreams.Test()
+	terminal, stdout, stderr := testTerminal(t, false)
 
-	code := run([]string{"--bogus"}, streams)
+	code := run([]string{"--bogus"}, terminal)
 
 	require.Equal(t, 1, code)
-	require.Empty(t, stdout.String())
-	require.Contains(t, stderr.String(), "unknown flag: --bogus")
+	require.Empty(t, fileString(t, stdout))
+	require.Contains(t, fileString(t, stderr), "unknown flag: --bogus")
 }
 
 func TestNewRootCmd_UsesExtensionCommandName(t *testing.T) {
-	cmd := newRootCmd(iostreams.System(), &rootOptions{})
+	terminal, _, _ := testTerminal(t, false)
+	cmd := newRootCmd(terminal, &rootOptions{})
 
 	require.Equal(t, "gh users [partial-username...]", cmd.Use)
 }
@@ -70,8 +73,7 @@ func TestProcessUsers_DedupesAndSortsViaJQ(t *testing.T) {
 }
 
 func TestRunUsers_PrintsTSVOutput(t *testing.T) {
-	streams, _, stdout, _ := iostreams.Test()
-	streams.SetStdoutTTY(false)
+	terminal, stdout, _ := testTerminal(t, false)
 
 	mock := &mockService{
 		response: &ghclient.QueryEnvelope{
@@ -93,19 +95,19 @@ func TestRunUsers_PrintsTSVOutput(t *testing.T) {
 	}
 
 	err := runUsers(&rootOptions{
-		io:     streams,
+		term:   terminal,
 		client: mock,
 		repo:   "heaths/gh-users",
 	}, []string{"heath"})
 	require.NoError(t, err)
-	require.Equal(t, "heaths\tHeath Stewart\theath@example.com\tavailable\n", stdout.String())
+	require.Equal(t, "heaths\tHeath Stewart\theath@example.com\tavailable\n", fileString(t, stdout))
 	require.Equal(t, "heaths", mock.owner)
 	require.Equal(t, "gh-users", mock.repo)
 	require.Equal(t, []string{"heath"}, mock.partials)
 }
 
 func TestRunUsers_PrintsJSONOutput(t *testing.T) {
-	streams, _, stdout, _ := iostreams.Test()
+	terminal, stdout, _ := testTerminal(t, false)
 	mock := &mockService{
 		response: &ghclient.QueryEnvelope{
 			Data: ghclient.QueryResponse{
@@ -126,17 +128,17 @@ func TestRunUsers_PrintsJSONOutput(t *testing.T) {
 	}
 
 	err := runUsers(&rootOptions{
-		io:         streams,
+		term:       terminal,
 		client:     mock,
 		repo:       "heaths/gh-users",
 		jsonFields: "login,status",
 	}, []string{"heath"})
 	require.NoError(t, err)
-	require.Equal(t, "[{\"login\":\"heaths\",\"status\":\"available\"}]\n", stdout.String())
+	require.Equal(t, "[{\"login\":\"heaths\",\"status\":\"available\"}]\n", fileString(t, stdout))
 }
 
 func TestRunUsers_FiltersJSONOutputWithJQ(t *testing.T) {
-	streams, _, stdout, _ := iostreams.Test()
+	terminal, stdout, _ := testTerminal(t, false)
 	mock := &mockService{
 		response: &ghclient.QueryEnvelope{
 			Data: ghclient.QueryResponse{
@@ -152,17 +154,17 @@ func TestRunUsers_FiltersJSONOutputWithJQ(t *testing.T) {
 	}
 
 	err := runUsers(&rootOptions{
-		io:           streams,
+		term:         terminal,
 		client:       mock,
 		repo:         "heaths/gh-users",
 		jqExpression: ".[].login",
 	}, []string{"heath"})
 	require.NoError(t, err)
-	require.Equal(t, "heaths\n", stdout.String())
+	require.Equal(t, "heaths\n", fileString(t, stdout))
 }
 
 func TestRunUsers_FormatsJSONOutputWithTemplate(t *testing.T) {
-	streams, _, stdout, _ := iostreams.Test()
+	terminal, stdout, _ := testTerminal(t, false)
 	mock := &mockService{
 		response: &ghclient.QueryEnvelope{
 			Data: ghclient.QueryResponse{
@@ -178,19 +180,17 @@ func TestRunUsers_FormatsJSONOutputWithTemplate(t *testing.T) {
 	}
 
 	err := runUsers(&rootOptions{
-		io:     streams,
+		term:   terminal,
 		client: mock,
 		repo:   "heaths/gh-users",
 		tmpl:   "{{range .}}{{printf \"%s\\t%s\\n\" .login .email}}{{end}}",
 	}, []string{"heath"})
 	require.NoError(t, err)
-	require.Equal(t, "heaths\theath@example.com\n", stdout.String())
+	require.Equal(t, "heaths\theath@example.com\n", fileString(t, stdout))
 }
 
 func TestRunUsers_HighlightsPatternsInDefaultOutput(t *testing.T) {
-	streams, _, stdout, _ := iostreams.Test()
-	streams.SetStdoutTTY(true)
-	streams.SetColorEnabled(true)
+	terminal, stdout, _ := testTerminal(t, true)
 	mock := &mockService{
 		response: &ghclient.QueryEnvelope{
 			Data: ghclient.QueryResponse{
@@ -206,17 +206,18 @@ func TestRunUsers_HighlightsPatternsInDefaultOutput(t *testing.T) {
 	}
 
 	err := runUsers(&rootOptions{
-		io:     streams,
+		term:   terminal,
 		client: mock,
 		repo:   "heaths/gh-users",
 	}, []string{"OCTO"})
 	require.NoError(t, err)
-	require.Contains(t, stdout.String(), colors.HighlightLogin(streams.ColorScheme(), "octocat", "OCTO"))
-	require.Contains(t, stdout.String(), colors.Highlight(streams.ColorScheme(), "The Octo Cat", "OCTO"))
+	output := fileString(t, stdout)
+	require.Contains(t, output, colors.HighlightLogin(terminal, "octocat", "OCTO"))
+	require.Contains(t, output, colors.Highlight(terminal, "The Octo Cat", "OCTO"))
 }
 
 func TestRunUsers_PrintsEmptyOutputWhenNoMatches(t *testing.T) {
-	streams, _, stdout, _ := iostreams.Test()
+	terminal, stdout, _ := testTerminal(t, false)
 	mock := &mockService{
 		response: &ghclient.QueryEnvelope{
 			Data: ghclient.QueryResponse{
@@ -226,10 +227,51 @@ func TestRunUsers_PrintsEmptyOutputWhenNoMatches(t *testing.T) {
 	}
 
 	err := runUsers(&rootOptions{
-		io:     streams,
+		term:   terminal,
 		client: mock,
 		repo:   "heaths/gh-users",
 	}, nil)
 	require.NoError(t, err)
-	require.Empty(t, stdout.String())
+	require.Empty(t, fileString(t, stdout))
+}
+
+func testTerminal(t *testing.T, tty bool) (term.Term, *os.File, *os.File) {
+	t.Helper()
+
+	stdout, err := os.CreateTemp(t.TempDir(), "stdout")
+	require.NoError(t, err)
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+	require.NoError(t, err)
+
+	originalStdout, originalStderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = stdout, stderr
+	t.Cleanup(func() {
+		os.Stdout, os.Stderr = originalStdout, originalStderr
+		if err := stdout.Close(); err != nil {
+			t.Errorf("closing stdout temp file: %v", err)
+		}
+		if err := stderr.Close(); err != nil {
+			t.Errorf("closing stderr temp file: %v", err)
+		}
+	})
+
+	t.Setenv("GH_FORCE_TTY", "")
+	t.Setenv("CLICOLOR", "")
+	t.Setenv("CLICOLOR_FORCE", "")
+	t.Setenv("NO_COLOR", "1")
+	if tty {
+		t.Setenv("GH_FORCE_TTY", "80")
+		t.Setenv("NO_COLOR", "")
+	}
+
+	return term.FromEnv(), stdout, stderr
+}
+
+func fileString(t *testing.T, file *os.File) string {
+	t.Helper()
+	_, err := file.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+	data, err := io.ReadAll(file)
+	require.NoError(t, err)
+	return string(data)
 }

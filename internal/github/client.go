@@ -6,8 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cli/go-gh"
-	"github.com/cli/go-gh/pkg/api"
+	"github.com/cli/go-gh/v2/pkg/api"
 )
 
 const usersJQExpression = `[.data.repository[].nodes[]] | unique_by(.login) | sort_by(.login)`
@@ -186,7 +185,7 @@ func UsersJQExpression() string {
 }
 
 func New(log io.Writer) (*Client, error) {
-	gql, err := gh.GQLClient(&api.ClientOptions{Log: log})
+	gql, err := api.NewGraphQLClient(api.ClientOptions{Log: log})
 	if err != nil {
 		return nil, err
 	}
