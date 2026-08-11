@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/api"
+	ghterminal "github.com/heaths/gh-users/internal/terminal"
 )
 
 const usersJQExpression = `[.data.repository[].nodes[]] | unique_by(.login) | sort_by(.login)`
@@ -23,7 +24,13 @@ type GraphQLClient interface {
 }
 
 type Client struct {
-	gql GraphQLClient
+	gql        GraphQLClient
+	newSpinner func() progressIndicator
+}
+
+type progressIndicator interface {
+	Start()
+	Stop()
 }
 
 type QueryEnvelope struct {
@@ -184,13 +191,18 @@ func UsersJQExpression() string {
 	return usersJQExpression
 }
 
-func New(log io.Writer) (*Client, error) {
+func New(log io.Writer, spinnerOutput io.Writer) (*Client, error) {
 	gql, err := api.NewGraphQLClient(api.ClientOptions{Log: log})
 	if err != nil {
 		return nil, err
 	}
 
-	return NewWithClient(gql), nil
+	return &Client{
+		gql: gql,
+		newSpinner: func() progressIndicator {
+			return ghterminal.NewSpinner(spinnerOutput)
+		},
+	}, nil
 }
 
 func NewWithClient(gql GraphQLClient) *Client {
@@ -226,6 +238,7 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 	}
 
 	var endCursor string
+	var indicator progressIndicator
 	for {
 		pagedVars := cloneVariables(vars)
 		if endCursor != "" {
@@ -234,6 +247,9 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 
 		var response graphqlQueryResponse
 		if err := c.gql.Do(query, pagedVars, &response); err != nil {
+			if indicator != nil {
+				indicator.Stop()
+			}
 			return nil, err
 		}
 
@@ -244,7 +260,17 @@ func (c *Client) QueryUsers(owner, repo string, partials []string) (*QueryEnvelo
 		envelope.Data.Repository["alias_0"] = aggregated
 
 		if !connection.PageInfo.HasNextPage {
+			if indicator != nil {
+				indicator.Stop()
+			}
 			break
+		}
+
+		if indicator == nil && c.newSpinner != nil {
+			indicator = c.newSpinner()
+			if indicator != nil {
+				indicator.Start()
+			}
 		}
 
 		endCursor = connection.PageInfo.EndCursor

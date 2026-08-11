@@ -11,6 +11,19 @@ type fakeGQLClient struct {
 	do func(query string, vars map[string]interface{}, response interface{}) error
 }
 
+type fakeProgressIndicator struct {
+	started int
+	stopped int
+}
+
+func (f *fakeProgressIndicator) Start() {
+	f.started++
+}
+
+func (f *fakeProgressIndicator) Stop() {
+	f.stopped++
+}
+
 func (f *fakeGQLClient) Do(query string, vars map[string]interface{}, response interface{}) error {
 	return f.do(query, vars, response)
 }
@@ -62,6 +75,7 @@ func TestQueryUsers_UsesBatchedAliases(t *testing.T) {
 
 func TestQueryUsers_PaginatesUnfilteredResults(t *testing.T) {
 	calls := 0
+	indicator := &fakeProgressIndicator{}
 	client := NewWithClient(&fakeGQLClient{
 		do: func(query string, vars map[string]interface{}, response interface{}) error {
 			calls++
@@ -96,11 +110,73 @@ func TestQueryUsers_PaginatesUnfilteredResults(t *testing.T) {
 			return nil
 		},
 	})
+	client.newSpinner = func() progressIndicator { return indicator }
 
 	response, err := client.QueryUsers("heaths", "gh-users", nil)
 	require.NoError(t, err)
 	require.Equal(t, 2, calls)
 	require.Equal(t, []User{{Login: "alpha"}, {Login: "beta"}}, response.Data.Repository["alias_0"].Nodes)
+	require.Equal(t, 1, indicator.started)
+	require.Equal(t, 1, indicator.stopped)
+}
+
+func TestQueryUsers_StopsSpinnerBeforeReturningError(t *testing.T) {
+	calls := 0
+	indicator := &fakeProgressIndicator{}
+	client := NewWithClient(&fakeGQLClient{
+		do: func(query string, vars map[string]interface{}, response interface{}) error {
+			calls++
+			if calls == 2 {
+				require.Equal(t, 1, indicator.started)
+				require.Equal(t, 0, indicator.stopped)
+				return errors.New("page 2 failed")
+			}
+
+			resp := response.(*graphqlQueryResponse)
+			resp.Repository = map[string]graphqlUserConnection{
+				"alias_0": {
+					Nodes: []graphqlUser{{Login: "alpha"}},
+					PageInfo: PageInfo{
+						HasNextPage: true,
+						EndCursor:   "cursor-1",
+					},
+				},
+			}
+			return nil
+		},
+	})
+	client.newSpinner = func() progressIndicator { return indicator }
+
+	response, err := client.QueryUsers("heaths", "gh-users", nil)
+	require.Nil(t, response)
+	require.EqualError(t, err, "page 2 failed")
+	require.Equal(t, 1, indicator.started)
+	require.Equal(t, 1, indicator.stopped)
+}
+
+func TestQueryUsers_DoesNotStartSpinnerForSinglePage(t *testing.T) {
+	indicator := &fakeProgressIndicator{}
+	client := NewWithClient(&fakeGQLClient{
+		do: func(query string, vars map[string]interface{}, response interface{}) error {
+			resp := response.(*graphqlQueryResponse)
+			resp.Repository = map[string]graphqlUserConnection{
+				"alias_0": {
+					Nodes: []graphqlUser{{Login: "alpha"}},
+					PageInfo: PageInfo{
+						HasNextPage: false,
+					},
+				},
+			}
+			return nil
+		},
+	})
+	client.newSpinner = func() progressIndicator { return indicator }
+
+	response, err := client.QueryUsers("heaths", "gh-users", nil)
+	require.NoError(t, err)
+	require.Equal(t, []User{{Login: "alpha"}}, response.Data.Repository["alias_0"].Nodes)
+	require.Equal(t, 0, indicator.started)
+	require.Equal(t, 0, indicator.stopped)
 }
 
 func TestParseUserFields(t *testing.T) {

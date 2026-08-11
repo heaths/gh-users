@@ -1,4 +1,4 @@
-package colors
+package terminal
 
 // cspell:ignore aths mcat mheaths mocto moctocat
 
