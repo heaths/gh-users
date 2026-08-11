@@ -18,6 +18,8 @@
   available before adding custom code or other dependencies.
 - Do not use `github.com/cli/cli` as a module; it is not supported for module
   consumers.
+- Keep terminal styling on indexed 16-color codes so terminal themes control
+  the final appearance.
 - Avoid new third-party modules unless they are explicitly requested or
   clearly necessary for the change.
 - Prefer Go APIs over shelling out.

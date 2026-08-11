@@ -13,12 +13,18 @@ const (
 	// Use 30;103 for a bright-yellow background instead of the current dim yellow.
 	blackOnYellow16    = "\x1b[30;43m"
 	yellowForeground16 = "\x1b[0;33m"
-	grayForeground16   = "\x1b[0;90m"
-	grayForeground256  = "\x1b[38;5;242m"
+	brightBlack16      = "\x1b[0;90m"
+	dimWhite16         = "\x1b[0;2;37m"
+	darkTheme          = "dark"
+	lightTheme         = "light"
 
 	resetDefault = "\x1b[39;49m"
 	resetAll     = "\x1b[0m"
 )
+
+var termTheme = func(terminal term.Term) string {
+	return terminal.Theme()
+}
 
 type match struct {
 	start int
@@ -65,10 +71,12 @@ func Muted(terminal term.Term) func(string) string {
 		if !terminal.IsColorEnabled() {
 			return input
 		}
-		prefix := grayForeground16
-		if terminal.Is256ColorSupported() {
-			prefix = grayForeground256
+
+		prefix := mutedPrefix(terminal)
+		if prefix == "" {
+			return input
 		}
+
 		return prefix + input + resetAll
 	}
 }
@@ -124,6 +132,17 @@ func namePlain(_ term.Term) string {
 
 func loginPlain(_ term.Term) string {
 	return greenForeground16
+}
+
+func mutedPrefix(terminal term.Term) string {
+	switch termTheme(terminal) {
+	case lightTheme:
+		return brightBlack16
+	case darkTheme:
+		return dimWhite16
+	default:
+		return ""
+	}
 }
 
 func findMatches(input string, patterns []string) []match {

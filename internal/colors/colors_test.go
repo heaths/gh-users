@@ -79,14 +79,34 @@ func TestHighlightLogin(t *testing.T) {
 }
 
 func TestFieldColors(t *testing.T) {
-	t.Run("styles fields when color is enabled", func(t *testing.T) {
+	defaultTheme := termTheme
+	t.Cleanup(func() {
+		termTheme = defaultTheme
+	})
+
+	t.Run("uses bright black on light themes", func(t *testing.T) {
 		terminal := testTerm(t, true)
+		termTheme = func(term.Term) string { return lightTheme }
 		require.Equal(t, "\x1b[0;90memail\x1b[0m", Muted(terminal)("email"))
+		require.Equal(t, "\x1b[0;33mstatus\x1b[0m", Yellow(terminal)("status"))
+	})
+
+	t.Run("uses dim white on dark themes", func(t *testing.T) {
+		terminal := testTerm(t, true)
+		termTheme = func(term.Term) string { return darkTheme }
+		require.Equal(t, "\x1b[0;2;37memail\x1b[0m", Muted(terminal)("email"))
+	})
+
+	t.Run("does not style muted fields when there is no theme", func(t *testing.T) {
+		terminal := testTerm(t, true)
+		termTheme = func(term.Term) string { return "none" }
+		require.Equal(t, "email", Muted(terminal)("email"))
 		require.Equal(t, "\x1b[0;33mstatus\x1b[0m", Yellow(terminal)("status"))
 	})
 
 	t.Run("does not style fields when color is disabled", func(t *testing.T) {
 		terminal := testTerm(t, false)
+		termTheme = func(term.Term) string { return lightTheme }
 		require.Equal(t, "email", Muted(terminal)("email"))
 		require.Equal(t, "status", Yellow(terminal)("status"))
 	})
