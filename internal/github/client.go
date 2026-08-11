@@ -10,7 +10,7 @@ import (
 	ghterminal "github.com/heaths/gh-users/internal/terminal"
 )
 
-const usersJQExpression = `[.data.repository[].nodes[]] | unique_by(.login) | sort_by(.login)`
+const usersJQExpression = `[.data.repository[]?.nodes[]?] | unique_by(.login) | sort_by(.login)`
 
 var userFields = []string{
 	"login",
