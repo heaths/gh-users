@@ -247,6 +247,12 @@ func testTerminal(t *testing.T, tty bool) (term.Term, *os.File, *os.File) {
 	os.Stdout, os.Stderr = stdout, stderr
 	t.Cleanup(func() {
 		os.Stdout, os.Stderr = originalStdout, originalStderr
+		if err := stdout.Close(); err != nil {
+			t.Errorf("closing stdout temp file: %v", err)
+		}
+		if err := stderr.Close(); err != nil {
+			t.Errorf("closing stderr temp file: %v", err)
+		}
 	})
 
 	t.Setenv("GH_FORCE_TTY", "")
